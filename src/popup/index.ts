@@ -4,10 +4,18 @@ const btnReplay = document.getElementById('btnReplay') as HTMLButtonElement;
 const statusEl = document.getElementById('status')!;
 const statusDot = document.getElementById('statusDot')!;
 const sessionList = document.getElementById('sessionList')!;
+const privacyModal = document.getElementById('privacyModal') as HTMLDivElement;
+const privacyAcknowledge = document.getElementById('privacyAcknowledge') as HTMLInputElement;
+const privacyCancel = document.getElementById('privacyCancel') as HTMLButtonElement;
+const privacyConfirm = document.getElementById('privacyConfirm') as HTMLButtonElement;
+const privacyPolicy = document.getElementById('privacyPolicy') as HTMLButtonElement;
 
 let isRecording = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let recordStartTime = 0;
+
+const PRIVACY_NOTICE_ACCEPTED_KEY = 'privacyNoticeAccepted';
+const PRIVACY_POLICY_URL = 'https://github.com/xiashitao/Replay-debug/blob/main/PRIVACY.md';
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -112,11 +120,38 @@ function loadSessions() {
   });
 }
 
-// 事件绑定
-btnRecord.addEventListener('click', () => {
+function startRecordingFromPopup() {
   chrome.runtime.sendMessage({ type: 'START_RECORDING' }, () => {
     updateStatus();
   });
+}
+
+async function hasAcceptedPrivacyNotice(): Promise<boolean> {
+  const result = await chrome.storage.local.get(PRIVACY_NOTICE_ACCEPTED_KEY);
+  return result[PRIVACY_NOTICE_ACCEPTED_KEY] === true;
+}
+
+function showPrivacyNotice() {
+  privacyAcknowledge.checked = false;
+  privacyConfirm.disabled = true;
+  privacyModal.hidden = false;
+  privacyAcknowledge.focus();
+}
+
+function hidePrivacyNotice() {
+  privacyModal.hidden = true;
+}
+
+// 事件绑定
+btnRecord.addEventListener('click', async () => {
+  if (isRecording) return;
+
+  if (await hasAcceptedPrivacyNotice()) {
+    startRecordingFromPopup();
+    return;
+  }
+
+  showPrivacyNotice();
 });
 
 btnStop.addEventListener('click', () => {
@@ -128,6 +163,25 @@ btnStop.addEventListener('click', () => {
 
 btnReplay.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'OPEN_REPLAY' });
+});
+
+privacyAcknowledge.addEventListener('change', () => {
+  privacyConfirm.disabled = !privacyAcknowledge.checked;
+});
+
+privacyCancel.addEventListener('click', () => {
+  hidePrivacyNotice();
+});
+
+privacyConfirm.addEventListener('click', async () => {
+  if (!privacyAcknowledge.checked) return;
+  await chrome.storage.local.set({ [PRIVACY_NOTICE_ACCEPTED_KEY]: true });
+  hidePrivacyNotice();
+  startRecordingFromPopup();
+});
+
+privacyPolicy.addEventListener('click', () => {
+  chrome.tabs.create({ url: PRIVACY_POLICY_URL });
 });
 
 sessionList.addEventListener('click', (e) => {

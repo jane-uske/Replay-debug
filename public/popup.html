@@ -153,6 +153,97 @@
       padding: 20px;
       font-size: 13px;
     }
+    .privacy-modal[hidden] {
+      display: none;
+    }
+    .privacy-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.35);
+    }
+    .privacy-dialog {
+      width: 100%;
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+      padding: 16px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+    }
+    .privacy-dialog h2 {
+      font-size: 15px;
+      line-height: 1.3;
+      margin-bottom: 8px;
+    }
+    .privacy-dialog p {
+      font-size: 12px;
+      line-height: 1.55;
+      color: #555;
+      margin-bottom: 8px;
+    }
+    .privacy-dialog ul {
+      padding-left: 18px;
+      margin: 0 0 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #666;
+    }
+    .privacy-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #444;
+      margin: 10px 0 12px;
+    }
+    .privacy-check input {
+      margin-top: 2px;
+    }
+    .privacy-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .privacy-actions button {
+      border-radius: 6px;
+      padding: 9px 10px;
+      font-size: 13px;
+    }
+    .btn-cancel {
+      background: #f1f1f1;
+      color: #333;
+    }
+    .btn-cancel:hover {
+      background: #e5e5e5;
+    }
+    .btn-confirm {
+      background: #FF3B30;
+      color: #fff;
+    }
+    .btn-confirm:hover {
+      background: #E0352B;
+    }
+    .btn-confirm:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .privacy-link {
+      width: 100%;
+      padding: 6px;
+      background: transparent;
+      color: #007AFF;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .privacy-link:hover {
+      background: #f5f9ff;
+    }
   </style>
 </head>
 <body>
@@ -172,6 +263,26 @@
     <div class="sessions">
       <h2>历史录制</h2>
       <div id="sessionList"></div>
+    </div>
+  </div>
+  <div class="privacy-modal" id="privacyModal" hidden>
+    <div class="privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="privacyTitle">
+      <h2 id="privacyTitle">开始录制前确认</h2>
+      <p>Replay Debug 会记录当前页面的内容和调试信息，用于本地回放和问题排查。</p>
+      <ul>
+        <li>可能记录页面 DOM、操作、URL、console、错误和少量截图。</li>
+        <li>会记录 fetch / XHR 的请求元信息，默认不读取响应体。</li>
+        <li>录制数据默认保存在本机浏览器，不会自动上传。</li>
+      </ul>
+      <label class="privacy-check">
+        <input type="checkbox" id="privacyAcknowledge">
+        <span>我已了解录制数据可能包含敏感信息，并同意开始录制。</span>
+      </label>
+      <div class="privacy-actions">
+        <button class="btn-cancel" id="privacyCancel" type="button">取消</button>
+        <button class="btn-confirm" id="privacyConfirm" type="button" disabled>开始录制</button>
+      </div>
+      <button class="privacy-link" id="privacyPolicy" type="button">查看隐私政策</button>
     </div>
   </div>
   <script src="popup.js"></script>
