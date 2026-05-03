@@ -139,7 +139,7 @@ Replay Debug 的页面回放能力来自 rrweb。rrweb 很适合记录 DOM 变�
 - `unlimitedStorage`：降低录制数据较大时触发存储限制的概率。
 - `<all_urls>`：允许在不同网页上录制和注入脚本。
 
-当前核心网络采集通过页面主世界里的 fetch / XHR 包装实现。`webRequest` 权限不是核心路径，后续可以评估移除，进一步收窄权限范围。
+当前核心网络采集通过页面主世界里的 fetch / XHR 包装实现，没有声明 `webRequest` 这类浏览器级网络监听权限。
 
 ## 项目结构
 
