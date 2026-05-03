@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      min-height: 200px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      color: #333;
+      background: #fff;
+    }
+    .header {
+      padding: 16px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .header .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ccc;
+    }
+    .header .dot.recording {
+      background: #FF3B30;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .content {
+      padding: 16px;
+    }
+    .status {
+      text-align: center;
+      padding: 12px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: #666;
+    }
+    .status.active {
+      background: #FFF0F0;
+      color: #FF3B30;
+    }
+    .status .timer {
+      font-size: 20px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+    .btn-group {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-record {
+      background: #FF3B30;
+      color: white;
+    }
+    .btn-record:hover { background: #E0352B; }
+    .btn-record:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .btn-stop {
+      background: #333;
+      color: white;
+    }
+    .btn-stop:hover { background: #555; }
+    .btn-stop:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .btn-replay {
+      background: #007AFF;
+      color: white;
+      margin-top: 8px;
+      width: 100%;
+    }
+    .btn-replay:hover { background: #0066D6; }
+    .btn-replay:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .sessions {
+      margin-top: 16px;
+    }
+    .sessions h2 {
+      font-size: 13px;
+      color: #999;
+      margin-bottom: 8px;
+    }
+    .session-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: #f9f9f9;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .session-item:hover { background: #f0f0f0; }
+    .session-item .info {
+      flex: 1;
+    }
+    .session-item .title {
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 180px;
+    }
+    .session-item .meta {
+      font-size: 11px;
+      color: #999;
+      margin-top: 2px;
+    }
+    .session-item .delete-btn {
+      background: none;
+      border: none;
+      color: #ccc;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 4px;
+      flex: 0;
+    }
+    .session-item .delete-btn:hover { color: #FF3B30; }
+    .empty {
+      text-align: center;
+      color: #ccc;
+      padding: 20px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="dot" id="statusDot"></div>
+    <h1>Replay Debug</h1>
+  </div>
+  <div class="content">
+    <div class="status" id="status">
+      <div>就绪</div>
+    </div>
+    <div class="btn-group">
+      <button class="btn-record" id="btnRecord">开始录制</button>
+      <button class="btn-stop" id="btnStop" disabled>停止录制</button>
+    </div>
+    <button class="btn-replay" id="btnReplay" disabled>打开回放</button>
+    <div class="sessions">
+      <h2>历史录制</h2>
+      <div id="sessionList"></div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

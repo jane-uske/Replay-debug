@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Replay Debug",
+  "version": "1.0.0",
+  "description": "录制用户浏览器操作，帮助开发人员复现和排查问题",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "scripting",
+    "webRequest",
+    "webNavigation",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["replay.html", "inject.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
