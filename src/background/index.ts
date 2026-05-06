@@ -120,13 +120,17 @@ restoreState();
 
 async function injectAndStart(tabId: number) {
   try {
+    // allFrames: true — 将 content script 注入所有 frame（含跨域 iframe），
+    // 配合 recordCrossOriginIframes 实现完整页面录制，避免 iframe 区域白屏
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, allFrames: true },
       files: ['content.js'],
     });
     // 给 content script 一点时间注册消息监听器
     await new Promise((r) => setTimeout(r, 100));
-    const resp = await chrome.tabs.sendMessage(tabId, { type: 'START_RECORDING' });
+    // START_RECORDING 只需发给主 frame（frameId: 0），
+    // 主 frame 的 recorder 会通过 postMessage 协调子 iframe
+    const resp = await chrome.tabs.sendMessage(tabId, { type: 'START_RECORDING' }, { frameId: 0 });
     console.log('[ReplayDebug] injectAndStart response:', resp);
   } catch (err) {
     console.error('[ReplayDebug] injectAndStart failed:', err);
@@ -135,7 +139,17 @@ async function injectAndStart(tabId: number) {
 
 async function stopTabRecording(tabId: number) {
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'STOP_RECORDING' });
+    // 通知主 frame 停止（主 frame 会 flush 最后一批事件后才 sendResponse）
+    await chrome.tabs.sendMessage(tabId, { type: 'STOP_RECORDING' }, { frameId: 0 });
+    // 异步通知所有子 iframe 停止（不等待响应，避免阻塞）
+    chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
+      },
+    }).catch(() => {});
+    // 等待主 frame 最后一批事件传达到 background onMessage 处理
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
   } catch {
     // tab 可能已经关闭，或页面还没有 content script
   }
@@ -165,7 +179,23 @@ let eventBuffer: unknown[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const FLUSH_INTERVAL = 500; // 每 500ms 批量写入一次
 
+// FullSnapshot (type=2) 是回放的关键事件，一旦收到立即写入 session 并持久化，
+// 防止 MV3 Service Worker 被系统终止后丢失导致回放白屏。
+const RRWEB_TYPE_FULL_SNAPSHOT = 2;
+
 function bufferEvent(event: unknown) {
+  const isFullSnapshot =
+    event && typeof event === 'object' && (event as any).type === RRWEB_TYPE_FULL_SNAPSHOT;
+
+  if (isFullSnapshot) {
+    // FullSnapshot 优先：同步写入 session 并立即触发持久化
+    if (currentSession) {
+      currentSession.rrwebEvents.push(event);
+    }
+    void persistSession();
+    return;
+  }
+
   eventBuffer.push(event);
   if (!flushTimer) {
     flushTimer = setTimeout(() => {
