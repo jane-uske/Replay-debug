@@ -58,6 +58,9 @@ function createSession(tab: chrome.tabs.Tab): RecordingSession {
 
 let autoSaveTimer: ReturnType<typeof setInterval> | null = null;
 
+// 记录上次持久化时已写入的事件数，auto-save 时只追加新增事件，避免全量重写
+let lastPersistedEventCount = 0;
+
 async function persistState() {
   await chrome.storage.session.set({
     isRecording: true,
@@ -65,19 +68,31 @@ async function persistState() {
   });
 }
 
+// persistSession 只保存 session 元数据 + 增量新事件，避免全量写入造成卡顿
 async function persistSession() {
-  if (currentSession) {
-    try {
-      await chrome.storage.local.set({ activeSession: currentSession });
-    } catch (err) {
-      console.error('[ReplayDebug] Failed to persist session:', err);
-    }
+  if (!currentSession) return;
+  try {
+    const newEvents = currentSession.rrwebEvents.slice(lastPersistedEventCount);
+    if (newEvents.length === 0) return;
+
+    // 追加新增事件到独立 key，而不是重写整个 session
+    const pendingKey = `session_events_pending_${currentSession.id}`;
+    const stored = await chrome.storage.local.get(pendingKey);
+    const existing: unknown[] = stored[pendingKey] || [];
+    await chrome.storage.local.set({
+      [pendingKey]: existing.concat(newEvents),
+      // 元数据（无 rrwebEvents）单独保存，用于 SW 重启恢复状态
+      activeSessionMeta: { ...currentSession, rrwebEvents: [] },
+    });
+    lastPersistedEventCount = currentSession.rrwebEvents.length;
+  } catch (err) {
+    console.error('[ReplayDebug] Failed to persist session:', err);
   }
 }
 
 function startAutoSave() {
   stopAutoSave();
-  // 每 3 秒自动保存 session 数据到 storage
+  lastPersistedEventCount = 0;
   autoSaveTimer = setInterval(persistSession, 3000);
 }
 
@@ -90,8 +105,13 @@ function stopAutoSave() {
 
 async function clearPersistedState() {
   stopAutoSave();
+  lastPersistedEventCount = 0;
+  const meta = await chrome.storage.local.get('activeSessionMeta');
+  const sessionId = (meta.activeSessionMeta as any)?.id;
   await chrome.storage.session.remove(['isRecording', 'recordingTabId']);
-  await chrome.storage.local.remove('activeSession');
+  const keysToRemove: string[] = ['activeSessionMeta'];
+  if (sessionId) keysToRemove.push(`session_events_pending_${sessionId}`);
+  await chrome.storage.local.remove(keysToRemove);
 }
 
 // Service Worker 启动时尝试恢复录制状态
@@ -103,9 +123,16 @@ async function restoreState() {
   isRecording = true;
   recordingTabId = state.recordingTabId as number | null;
 
-  const result = await chrome.storage.local.get('activeSession');
-  if (result.activeSession) {
-    currentSession = result.activeSession as RecordingSession;
+  const result = await chrome.storage.local.get('activeSessionMeta');
+  if (result.activeSessionMeta) {
+    currentSession = result.activeSessionMeta as RecordingSession;
+    // 从增量存储恢复已持久化的事件
+    const pendingKey = `session_events_pending_${currentSession.id}`;
+    const eventsResult = await chrome.storage.local.get(pendingKey);
+    if (eventsResult[pendingKey]) {
+      currentSession.rrwebEvents = eventsResult[pendingKey] as unknown[];
+      lastPersistedEventCount = currentSession.rrwebEvents.length;
+    }
     console.log('[ReplayDebug] State restored. rrwebEvents:', currentSession.rrwebEvents.length);
     startAutoSave();
   }
@@ -179,23 +206,7 @@ let eventBuffer: unknown[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const FLUSH_INTERVAL = 500; // 每 500ms 批量写入一次
 
-// FullSnapshot (type=2) 是回放的关键事件，一旦收到立即写入 session 并持久化，
-// 防止 MV3 Service Worker 被系统终止后丢失导致回放白屏。
-const RRWEB_TYPE_FULL_SNAPSHOT = 2;
-
 function bufferEvent(event: unknown) {
-  const isFullSnapshot =
-    event && typeof event === 'object' && (event as any).type === RRWEB_TYPE_FULL_SNAPSHOT;
-
-  if (isFullSnapshot) {
-    // FullSnapshot 优先：同步写入 session 并立即触发持久化
-    if (currentSession) {
-      currentSession.rrwebEvents.push(event);
-    }
-    void persistSession();
-    return;
-  }
-
   eventBuffer.push(event);
   if (!flushTimer) {
     flushTimer = setTimeout(() => {
@@ -220,16 +231,22 @@ function flushEvents() {
 }
 
 async function saveCompletedSession(session: RecordingSession) {
-  const sessionForList: RecordingSession = {
+  // sessions 列表只存元数据，不存 rrwebEvents，避免列表随录制次数线性膨胀导致卡顿
+  const sessionMeta: RecordingSession = {
     ...session,
     screenshots: [],
+    rrwebEvents: [],
   };
   const savedSessions = await getSessions();
   const dedupedSessions = savedSessions.filter((s) => s.id !== session.id);
-  dedupedSessions.push(sessionForList);
+  dedupedSessions.push(sessionMeta);
+
+  // rrwebEvents 单独存储，key: session_events_${id}
+  // lastSession 保留完整数据，供最近一次录制直接回放
   await chrome.storage.local.set({
     sessions: dedupedSessions,
-    lastSession: session,
+    [`session_events_${session.id}`]: session.rrwebEvents,
+    lastSession: { ...session, screenshots: [] },
   });
 }
 
@@ -462,37 +479,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'GET_RECORDING':
-      if (message.payload) {
-        getSessions().then((sessions) => {
-          const found = sessions.find((s) => s.id === message.payload);
-          if (found) {
-            chrome.storage.local.get('lastSession', (result) => {
-              const last = result.lastSession as RecordingSession | undefined;
-              if (last && last.id === found.id) {
-                sendResponse({ session: last });
-              } else {
-                sendResponse({ session: found });
-              }
-            });
-          } else {
-            chrome.storage.local.get('lastSession', (result) => {
-              const last = result.lastSession as RecordingSession | undefined;
-              sendResponse({ session: last && last.id === message.payload ? last : null });
-            });
-          }
-        });
-      } else {
-        chrome.storage.local.get('lastSession', (result) => {
-          sendResponse({ session: result.lastSession });
-        });
-      }
+      (async () => {
+        const id = message.payload as string | undefined;
+        const lastResult = await chrome.storage.local.get('lastSession');
+        const last = lastResult.lastSession as RecordingSession | undefined;
+
+        if (!id) {
+          sendResponse({ session: last || null });
+          return;
+        }
+
+        // 优先使用 lastSession（含完整 rrwebEvents）
+        if (last && last.id === id) {
+          sendResponse({ session: last });
+          return;
+        }
+
+        // 历史 session：从 sessions 元数据 + 独立 events key 合并
+        const sessions = await getSessions();
+        const meta = sessions.find((s) => s.id === id);
+        if (meta) {
+          const eventsResult = await chrome.storage.local.get(`session_events_${id}`);
+          const events: unknown[] = eventsResult[`session_events_${id}`] || [];
+          sendResponse({ session: { ...meta, rrwebEvents: events } });
+        } else {
+          sendResponse({ session: null });
+        }
+      })();
       return true;
 
     case 'DELETE_SESSION':
       (async () => {
+        const id = message.payload as string;
         const sessions = await getSessions();
-        const filtered = sessions.filter((s) => s.id !== message.payload);
+        const filtered = sessions.filter((s) => s.id !== id);
         await chrome.storage.local.set({ sessions: filtered });
+        await chrome.storage.local.remove(`session_events_${id}`);
         sendResponse({ success: true });
       })();
       return true;
@@ -503,6 +525,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const sessions = await getSessions();
         const filtered = sessions.filter((s) => !idsToDelete.has(s.id));
         await chrome.storage.local.set({ sessions: filtered });
+        // 同时清理各 session 的独立 events key
+        const eventKeys = Array.from(idsToDelete).map((id) => `session_events_${id}`);
+        if (eventKeys.length > 0) await chrome.storage.local.remove(eventKeys);
         sendResponse({ success: true, count: idsToDelete.size });
       })();
       return true;
@@ -615,10 +640,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const state = await chrome.storage.session.get(['isRecording', 'recordingTabId']);
     if (!state.isRecording || state.recordingTabId !== tabId) return;
 
-    // 恢复状态
-    const result = await chrome.storage.local.get('activeSession');
-    if (result.activeSession) {
-      currentSession = result.activeSession as RecordingSession;
+    // 恢复状态：从元数据 + 增量事件分别读取
+    const metaResult = await chrome.storage.local.get('activeSessionMeta');
+    if (metaResult.activeSessionMeta) {
+      currentSession = metaResult.activeSessionMeta as RecordingSession;
+      const pendingKey = `session_events_pending_${currentSession.id}`;
+      const eventsResult = await chrome.storage.local.get(pendingKey);
+      currentSession.rrwebEvents = eventsResult[pendingKey] || [];
+      lastPersistedEventCount = currentSession.rrwebEvents.length;
       isRecording = true;
       recordingTabId = state.recordingTabId as number;
       screenshotCount = currentSession.screenshots?.length || 0;
